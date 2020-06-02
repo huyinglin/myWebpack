@@ -24,7 +24,6 @@ const moduleAnalyser = (filename) => {
   const { code } = babel.transformFromAst(ast, null, {
     presets: ['@babel/preset-env'],
   });
-  console.log('code: ', code);
   return {
     filename,
     dependencies,
@@ -32,4 +31,48 @@ const moduleAnalyser = (filename) => {
   };
 }
 
-const moduleInfo = moduleAnalyser('./src/index.js');
+// 依赖分析图
+const makeDependenciesGraph = (entry) => {
+  const entryModule = moduleAnalyser(entry);
+  const graphArray = [entryModule];
+  for (let i = 0; i < graphArray.length; i++) {
+    const { dependencies } = graphArray[i];
+    if (dependencies) {
+      for (let j in dependencies) {
+        graphArray.push(moduleAnalyser(dependencies[j]));
+      }
+    }
+  }
+  const graph = {};
+  graphArray.forEach(item => {
+    // 转成对象
+    graph[item.filename] = {
+      dependencies: item.dependencies,
+      code: item.code,
+    };
+  });
+  return graph;
+}
+
+// 生成代码
+const generateCode = (entry) => {
+  const graph = JSON.stringify(makeDependenciesGraph(entry));
+  return `
+    (function(graph) {
+      function require(module) {
+        function localRequire(relativePath) {
+          return require(graph[module].dependencies[relativePath]);
+        }
+        var exports = {};
+        (function(require, exports, code) {
+          eval(code);
+        })(localRequire, exports, graph[module].code)
+        return exports;
+      }
+      require('${entry}');
+    })(${graph})
+  `;
+}
+
+const code = generateCode('./src/index.js');
+console.log('code: ', code);
